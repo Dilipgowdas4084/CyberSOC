@@ -1,0 +1,213 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         String   @default("viewer") // super_admin, analyst, network_admin, viewer
+  avatar       String?
+  isActive     Boolean  @default(true)
+  lastLogin    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  incidents    Incident[]
+  logs         Log[]
+  notifications Notification[]
+  blacklist    Blacklist[]
+  whitelist    Whitelist[]
+}
+
+model Device {
+  id             String   @id @default(uuid())
+  ip             String   @unique
+  mac            String?
+  hostname       String?
+  manufacturer   String?
+  deviceType     String   @default("unknown") // laptop, phone, server, iot, router, access_point
+  os             String?
+  firstSeen      DateTime @default(now())
+  lastActive     DateTime @default(now())
+  status         String   @default("online") // online, offline, suspicious
+  signalStrength Int?
+  riskScore      Int      @default(0) // 0-100
+  reputationScore Int     @default(100)
+  isWhitelisted  Boolean  @default(false)
+  isBlacklisted  Boolean  @default(false)
+  isRogue        Boolean  @default(false)
+  location       String?
+  isp            String?
+  latitude       Float?
+  longitude      Float?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  metrics        DeviceMetric[]
+  openPorts      OpenPort[]
+  vulnerabilities Vulnerability[]
+  alerts         Alert[]
+  threats        Threat[]
+}
+
+model DeviceMetric {
+  id            String   @id @default(uuid())
+  deviceId      String
+  cpu           Float    @default(0)
+  memory        Float    @default(0)
+  networkIn     Float    @default(0)
+  networkOut    Float    @default(0)
+  packetCount   Int      @default(0)
+  activeConnections Int  @default(0)
+  timestamp     DateTime @default(now())
+
+  device        Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+}
+
+model OpenPort {
+  id        String   @id @default(uuid())
+  deviceId  String
+  port      Int
+  protocol  String   @default("TCP")
+  service   String?
+  state     String   @default("open") // open, closed, filtered
+  version   String?
+  createdAt DateTime @default(now())
+
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+}
+
+model Threat {
+  id          String   @id @default(uuid())
+  type        String   // port_scan, arp_spoof, dns_spoof, mitm, ddos, brute_force, rogue_device, suspicious_traffic
+  severity    String   @default("medium") // critical, high, medium, low
+  sourceIp    String?
+  targetIp    String?
+  deviceId    String?
+  description String
+  detectedAt  DateTime @default(now())
+  status      String   @default("active") // active, investigating, resolved, false_positive
+  mitre       String?  // MITRE ATT&CK technique
+
+  device      Device?  @relation(fields: [deviceId], references: [id])
+}
+
+model Alert {
+  id           String   @id @default(uuid())
+  deviceId     String?
+  type         String   // new_device, device_disconnected, unauthorized_device, malware, failed_login, traffic_anomaly
+  severity     String   @default("medium")
+  message      String
+  details      String?
+  createdAt    DateTime @default(now())
+  acknowledged Boolean  @default(false)
+  acknowledgedAt DateTime?
+  resolvedAt   DateTime?
+  isRead       Boolean  @default(false)
+
+  device       Device?  @relation(fields: [deviceId], references: [id])
+}
+
+model Vulnerability {
+  id          String   @id @default(uuid())
+  deviceId    String
+  cve         String?
+  title       String
+  severity    String   @default("medium") // critical, high, medium, low
+  description String
+  solution    String?
+  cvssScore   Float?
+  status      String   @default("open") // open, in_progress, resolved, accepted
+  detectedAt  DateTime @default(now())
+  resolvedAt  DateTime?
+
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+}
+
+model Packet {
+  id          String   @id @default(uuid())
+  sourceIp    String
+  destIp      String
+  sourcePort  Int?
+  destPort    Int?
+  protocol    String   @default("TCP")
+  size        Int      @default(0)
+  flags       String?
+  payload     String?
+  isSuspicious Boolean @default(false)
+  timestamp   DateTime @default(now())
+}
+
+model Incident {
+  id           String   @id @default(uuid())
+  incidentId   String   @unique // INC-2024-001
+  title        String
+  severity     String   @default("medium")
+  status       String   @default("open") // open, investigating, in_progress, resolved, closed
+  assignedTo   String?
+  description  String
+  resolution   String?
+  timeline     String?  // JSON array of events
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  resolvedAt   DateTime?
+
+  analyst      User?    @relation(fields: [assignedTo], references: [id])
+}
+
+model Log {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  resource  String?
+  details   String?
+  ip        String?
+  level     String   @default("info") // debug, info, warn, error, critical
+  timestamp DateTime @default(now())
+
+  user      User?    @relation(fields: [userId], references: [id])
+}
+
+model Blacklist {
+  id        String   @id @default(uuid())
+  mac       String?
+  ip        String?
+  reason    String
+  addedBy   String
+  addedAt   DateTime @default(now())
+
+  user      User     @relation(fields: [addedBy], references: [id])
+}
+
+model Whitelist {
+  id        String   @id @default(uuid())
+  mac       String?
+  ip        String?
+  label     String?
+  addedBy   String
+  addedAt   DateTime @default(now())
+
+  user      User     @relation(fields: [addedBy], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String   // threat, alert, system, report
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+}
