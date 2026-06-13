@@ -101,13 +101,43 @@ async function getGateway(): Promise<string | null> {
   }
 }
 
-export async function discoverNetworkDevices(): Promise<ScannedDevice[]> {
-  const [arpDevices, localInfo, gateway] = await Promise.all([
-    scanArpTable(),
-    getLocalIP(),
-    getGateway(),
-  ]);
+async function performPingSweep(subnetPrefix: string): Promise<void> {
+  try {
+    // Try using fping first (extremely fast parallel ping)
+    await execAsync(`fping -g ${subnetPrefix}.1 ${subnetPrefix}.254 -r 1 -t 100 -q`);
+  } catch (err: any) {
+    // fping returns exit code 1 if some targets are unreachable, which is normal behavior.
+    // If fping isn't found (exit code 127/ENOENT), fall back to manual parallel ping.
+    if (err.code === 127 || err.message?.includes('not found') || err.message?.includes('ENOENT')) {
+      const ips = Array.from({ length: 254 }, (_, i) => `${subnetPrefix}.${i + 1}`);
+      const concurrency = 40;
+      for (let i = 0; i < ips.length; i += concurrency) {
+        const batch = ips.slice(i, i + concurrency);
+        await Promise.all(
+          batch.map(ip =>
+            execAsync(`ping -c 1 -t 1 ${ip}`)
+              .then(() => {})
+              .catch(() => {})
+          )
+        );
+      }
+    }
+  }
+}
 
+export async function discoverNetworkDevices(): Promise<ScannedDevice[]> {
+  const localInfo = await getLocalIP();
+  const gateway = await getGateway();
+
+  if (localInfo?.ip) {
+    const parts = localInfo.ip.split('.');
+    if (parts.length === 4) {
+      const prefix = parts.slice(0, 3).join('.');
+      await performPingSweep(prefix);
+    }
+  }
+
+  const arpDevices = await scanArpTable();
   const results: ScannedDevice[] = [...arpDevices];
 
   // Add this machine if not already in list
