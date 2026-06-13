@@ -23,6 +23,8 @@ interface Device {
   openPorts: { port: number; protocol: string; service?: string }[];
   _count: { vulnerabilities: number; alerts: number; threats: number };
   isThisMachine?: boolean;
+  owner?: string;
+  location?: string;
 }
 
 interface ScanResult {
@@ -62,6 +64,44 @@ function DevicesContent() {
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [scanning, setScanning] = useState(false);
   const didScan = useRef(false);
+
+  // Editing states
+  const [isEditing, setIsEditing] = useState(false);
+  const [editHostname, setEditHostname] = useState('');
+  const [editOwner, setEditOwner] = useState('');
+  const [editType, setEditType] = useState('');
+  const [editLocation, setEditLocation] = useState('');
+
+  // Sync edit form when selected device changes
+  useEffect(() => {
+    if (selected) {
+      setEditHostname(selected.hostname || '');
+      setEditOwner(selected.owner || '');
+      setEditType(selected.deviceType || 'unknown');
+      setEditLocation(selected.location || '');
+      setIsEditing(false);
+    }
+  }, [selected]);
+
+  const saveDeviceDetails = async () => {
+    if (!token || !selected) return;
+    try {
+      const updated = await apiFetch(`/api/devices/${selected.id}`, token, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          hostname: editHostname,
+          owner: editOwner,
+          deviceType: editType,
+          location: editLocation,
+        }),
+      });
+      setSelected(updated);
+      fetchDevices(token);
+      setIsEditing(false);
+    } catch (e) {
+      console.error('saveDeviceDetails:', e);
+    }
+  };
 
   const fetchDevices = useCallback(async (tok: string) => {
     setPageLoading(true);
@@ -229,7 +269,7 @@ function DevicesContent() {
                   }} />
                 </div>
                 <div style={{ fontSize: 10, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>
-                  {d.manufacturer || 'Unknown'}
+                  {d.owner ? `👤 ${d.owner}` : (d.manufacturer || 'Unknown')}
                 </div>
                 <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'rgba(255,255,255,.3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: d.signalStrength != null ? 6 : 0 }}>
                   {d.mac || '—'}
@@ -351,7 +391,9 @@ function DevicesContent() {
                               {d.hostname || 'Unknown'}
                               {d.isRogue && <span style={{ marginLeft: 6, fontSize: 9, background: 'rgba(255,51,102,.2)', color: '#ff3366', padding: '1px 5px', borderRadius: 3, fontWeight: 700 }}>ROGUE</span>}
                             </div>
-                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{d.manufacturer || d.deviceType}</div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                              {d.owner ? `👤 ${d.owner} (${d.manufacturer || 'Unknown'})` : (d.manufacturer || d.deviceType)}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -423,36 +465,133 @@ function DevicesContent() {
           <div style={{ width: 290, flexShrink: 0 }}>
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 18 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)', marginBottom: 2 }}>
-                    {selected.hostname || 'Unknown Device'}
-                  </div>
-                  {selected.isThisMachine && (
-                    <div style={{ fontSize: 11, color: 'var(--cyan)' }}>📶 This is YOUR machine</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {isEditing ? (
+                    <div style={{ marginBottom: 10 }}>
+                      <label style={{ display: 'block', fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>Device Hostname</label>
+                      <input
+                        style={{
+                          width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                          borderRadius: 6, padding: '5px 10px', color: 'var(--text-primary)', fontSize: 12,
+                          outline: 'none',
+                        }}
+                        value={editHostname}
+                        onChange={e => setEditHostname(e.target.value)}
+                        placeholder="e.g. My Phone"
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {selected.hostname || 'Unknown Device'}
+                      </div>
+                      {selected.isThisMachine && (
+                        <div style={{ fontSize: 11, color: 'var(--cyan)', marginBottom: 4 }}>📶 This is YOUR machine</div>
+                      )}
+                    </>
                   )}
                 </div>
-                <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18, padding: 0, lineHeight: 1 }}>✕</button>
+                <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18, padding: 0, lineHeight: 1, marginLeft: 8 }}>✕</button>
               </div>
 
-              {[
-                { label: 'IP Address', value: selected.ip, mono: true, color: 'var(--cyan)' },
-                { label: 'MAC Address', value: selected.mac || '—', mono: true },
-                { label: 'Manufacturer', value: selected.manufacturer || '—' },
-                { label: 'Device Type', value: selected.deviceType },
-                { label: 'OS', value: selected.os || '—' },
-                { label: 'Status', value: selected.status },
-                { label: 'Signal', value: selected.signalStrength != null ? `${selected.signalStrength}%` : '—' },
-                { label: 'Risk Score', value: `${selected.riskScore} / 100` },
-                { label: 'First Seen', value: new Date(selected.firstSeen).toLocaleDateString() },
-                { label: 'Last Active', value: new Date(selected.lastActive).toLocaleString() },
-              ].map(({ label, value, mono, color }) => (
-                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,.04)', gap: 8 }}>
-                  <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>{label}</span>
-                  <span style={{ fontSize: mono ? 11 : 12, fontFamily: mono ? 'monospace' : 'inherit', color: color || 'var(--text-primary)', textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {value}
-                  </span>
+              {isEditing ? (
+                // EDIT MODE
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>Registered To (Owner)</label>
+                    <input
+                      style={{
+                        width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                        borderRadius: 6, padding: '5px 10px', color: 'var(--text-primary)', fontSize: 12,
+                        outline: 'none',
+                      }}
+                      value={editOwner}
+                      onChange={e => setEditOwner(e.target.value)}
+                      placeholder="e.g. Dilip Gowda"
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>Device Type</label>
+                    <select
+                      style={{
+                        width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                        borderRadius: 6, padding: '5px 8px', color: 'var(--text-primary)', fontSize: 12,
+                        outline: 'none',
+                      }}
+                      value={editType}
+                      onChange={e => setEditType(e.target.value)}
+                    >
+                      <option value="unknown">Unknown</option>
+                      <option value="laptop">Laptop</option>
+                      <option value="phone">Phone</option>
+                      <option value="server">Server</option>
+                      <option value="router">Router</option>
+                      <option value="iot">IoT / Smart Device</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>Location</label>
+                    <input
+                      style={{
+                        width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                        borderRadius: 6, padding: '5px 10px', color: 'var(--text-primary)', fontSize: 12,
+                        outline: 'none',
+                      }}
+                      value={editLocation}
+                      onChange={e => setEditLocation(e.target.value)}
+                      placeholder="e.g. Office, Living Room"
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <button
+                      onClick={saveDeviceDetails}
+                      style={{ flex: 1, background: 'var(--cyan)', color: '#000', border: 'none', borderRadius: 6, padding: '7px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                    >💾 Save</button>
+                    <button
+                      onClick={() => setIsEditing(false)}
+                      style={{ flex: 1, background: 'rgba(255,255,255,0.08)', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                    >Cancel</button>
+                  </div>
                 </div>
-              ))}
+              ) : (
+                // VIEW MODE
+                <>
+                  {[
+                    { label: 'Registered To', value: selected.owner || '—', color: selected.owner ? 'var(--cyan)' : undefined },
+                    { label: 'Location', value: selected.location || '—' },
+                    { label: 'IP Address', value: selected.ip, mono: true, color: 'var(--cyan)' },
+                    { label: 'MAC Address', value: selected.mac || '—', mono: true },
+                    { label: 'Manufacturer', value: selected.manufacturer || '—' },
+                    { label: 'Device Type', value: selected.deviceType },
+                    { label: 'OS', value: selected.os || '—' },
+                    { label: 'Status', value: selected.status },
+                    { label: 'Signal', value: selected.signalStrength != null ? `${selected.signalStrength}%` : '—' },
+                    { label: 'Risk Score', value: `${selected.riskScore} / 100` },
+                    { label: 'First Seen', value: new Date(selected.firstSeen).toLocaleDateString() },
+                    { label: 'Last Active', value: new Date(selected.lastActive).toLocaleString() },
+                  ].map(({ label, value, mono, color }) => (
+                    <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,.04)', gap: 8 }}>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>{label}</span>
+                      <span style={{ fontSize: mono ? 11 : 12, fontFamily: mono ? 'monospace' : 'inherit', color: color || 'var(--text-primary)', textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {value}
+                      </span>
+                    </div>
+                  ))}
+
+                  <button
+                    onClick={() => setIsEditing(true)}
+                    style={{
+                      marginTop: 10, width: '100%', background: 'rgba(0,212,255,0.1)',
+                      border: '1px solid rgba(0,212,255,0.3)', color: 'var(--cyan)',
+                      borderRadius: 8, padding: '7px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      transition: 'background 0.2s',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,212,255,0.18)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'rgba(0,212,255,0.1)')}
+                  >✏️ Edit Details</button>
+                </>
+              )}
 
               {selected.openPorts.length > 0 && (
                 <div style={{ marginTop: 12 }}>

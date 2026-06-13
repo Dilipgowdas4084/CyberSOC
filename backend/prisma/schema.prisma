@@ -47,6 +47,7 @@ model Device {
   isBlacklisted  Boolean  @default(false)
   isRogue        Boolean  @default(false)
   location       String?
+  owner          String?
   isp            String?
   latitude       Float?
   longitude      Float?

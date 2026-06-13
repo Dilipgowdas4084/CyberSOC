@@ -197,3 +197,24 @@ devicesRouter.get('/stats/summary', async (_req: AuthRequest, res: Response) => 
     res.status(500).json({ error: 'Failed to fetch stats' });
   }
 });
+
+// PATCH /api/devices/:id — Update device details (hostname, deviceType, location, owner)
+devicesRouter.patch('/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const { hostname, deviceType, location, owner } = req.body;
+    const device = await prisma.device.update({
+      where: { id: req.params.id },
+      data: {
+        hostname: hostname !== undefined ? hostname : undefined,
+        deviceType: deviceType !== undefined ? deviceType : undefined,
+        location: location !== undefined ? location : undefined,
+        owner: owner !== undefined ? owner : undefined,
+      },
+      include: { openPorts: true, _count: { select: { vulnerabilities: true, alerts: true, threats: true } } },
+    });
+    res.json(device);
+  } catch (err) {
+    console.error('Failed to update device:', err);
+    res.status(500).json({ error: 'Failed to update device details' });
+  }
+});
